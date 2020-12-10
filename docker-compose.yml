@@ -1,0 +1,86 @@
+version: "3"
+
+networks:
+  testingNet:
+    driver: bridge
+
+services:
+  traefik:
+    container_name: testTraefik
+    image: traefik:v2.2.0
+    command:
+      - --entrypoints.web.address=:80
+      - --providers.docker=true
+      - --api
+    ports:
+      - "80:80"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - testingNet
+    restart: "unless-stopped"
+
+  php_apache:
+    container_name: testPhp
+    build: ./docker/images/php-apache
+    volumes:
+      - "./:/var/www/html"
+    restart: "unless-stopped"
+    networks:
+      - testingNet
+    labels:
+      - traefik.http.routers.php_apache.rule=Host(`docker.local`, `docker.local.com`)
+      - traefik.http.services.php_apache.loadbalancer.server.port=80
+
+  mysql:
+    container_name: testMysql
+    image: mysql:8
+    ## Database ######################
+    environment:
+      - MYSQL_DATABASE=livewireTest
+      - MYSQL_ALLOW_EMPTY_PASSWORD=yes
+    ##################################
+    command: --innodb-flush-method=O_DSYNC --innodb-use-native-aio=0 --log_bin=ON # Si da error en Windows
+    volumes:
+      - "./docker/temp/storage/mysql:/var/lib/mysql"
+    networks:
+      - testingNet
+    restart: "unless-stopped"
+
+  phpmyadmin:
+    container_name: testPhpmyadmin
+    image: phpmyadmin/phpmyadmin:5.0.2
+    environment:
+      - PMA_HOST=testMysql
+    networks:
+      - testingNet
+    restart: "unless-stopped"
+    labels:
+      - traefik.http.routers.phpmyadmin.rule=Host(`dbm.docker.local`)
+      - traefik.http.services.phpmyadmin.loadbalancer.server.port=80
+
+  mailhog:
+    container_name: testMailhog
+    image: mailhog/mailhog:v1.0.1
+    networks:
+      - testingNet
+    labels:
+      - traefik.http.routers.mailhog-webmail.rule=Host(`mail.docker.local`)
+      - traefik.http.routers.mailhog-webmail.service=mailhog-webmail
+      - traefik.http.services.mailhog-webmail.loadbalancer.server.port=8025
+
+      - traefik.http.routers.mailhog-smtp.rule=Host(`smtp.docker.local`)
+      - traefik.http.routers.mailhog-smtp.service=mailhog-smtp
+      - traefik.http.services.mailhog-smtp.loadbalancer.server.port=1025
+
+    restart: "unless-stopped"
+
+  smtptester:
+    container_name: testSmtpTester
+    image: eduardolol/smtp-tester:latest
+    networks:
+      - testingNet
+    labels:
+      - traefik.http.routers.smtptester.rule=Host(`smtp-test.docker.local`)
+      - traefik.http.services.smtptester.loadbalancer.server.port=80
+    restart: "unless-stopped"
